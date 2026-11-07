@@ -26,7 +26,7 @@ export function fileKey(hash: string, name: string) {
   return `files/${hash.slice(0, 16)}/${safeFileName(name)}`;
 }
 
-/** Public URL for a stored file. The route mirrors the R2 key. */
+/** Public URL for a stored file. The route mirrors the object key. */
 export function fileUrl(r2Key: string) {
   return `/${r2Key}`;
 }

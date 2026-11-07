@@ -1,6 +1,5 @@
 import { defineAction, ActionError } from 'astro:actions';
 import { z } from 'astro/zod';
-import { env } from 'cloudflare:workers';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { chapters, lessonFiles, lessons, subjects, type FileKind } from '../db/schema';
 import { t } from '../i18n';
@@ -9,6 +8,7 @@ import { getDb } from '../lib/db';
 import { FILE_KINDS, MAX_FILE_BYTES, MAX_SAVE_BYTES, fileKey, formatBytes, looksLikePdf, sha256Hex } from '../lib/files';
 import { removeFromSearchIndex, syncSearchIndex } from '../lib/search-index';
 import { SLUG_PATTERN, slugify } from '../lib/slug';
+import { putObject } from '../lib/storage';
 import { checkVideo, parseYouTubeId } from '../lib/youtube';
 import { attemptLogin } from './auth';
 
@@ -184,8 +184,15 @@ export const lessonActions = {
         const data = await file.arrayBuffer();
         if (!looksLikePdf(data)) return fail('invalid', { files: `“${file.name}” isn’t a PDF. Export it as PDF and try again.` });
         const hash = await sha256Hex(data);
-        uploads.push({ kind, key: fileKey(hash, file.name), size: file.size, name: file.name, hash });
-        await env.PDF_BUCKET.put(fileKey(hash, file.name), data, { httpMetadata: { contentType: 'application/pdf' } });
+        const key = fileKey(hash, file.name);
+        uploads.push({ kind, key, size: file.size, name: file.name, hash });
+        try {
+          await putObject(key, data, 'application/pdf');
+        } catch (err) {
+          console.error('PDF upload failed', key, err);
+          await deleteUnreferencedObjects(uploads.map((u) => u.key));
+          return fail('server', {}, `“${file.name}” couldn’t be uploaded. Nothing was changed. Try again in a moment.`);
+        }
       }
       const uploadedKeys = uploads.map((u) => u.key);
 
@@ -288,7 +295,7 @@ export const lessonActions = {
       const [lesson] = await db.select({ title: lessons.title }).from(lessons).where(eq(lessons.id, id));
       if (!lesson) return { deleted: true, title: '' };
       const files = await db.select({ key: lessonFiles.r2Key }).from(lessonFiles).where(eq(lessonFiles.lessonId, id));
-      // lesson_files rows cascade with the lesson; then the R2 objects go if nothing else uses them.
+      // lesson_files rows cascade with the lesson; then the stored objects go if nothing else uses them.
       await db.delete(lessons).where(eq(lessons.id, id));
       await removeFromSearchIndex([id]);
       await deleteUnreferencedObjects(files.map((f) => f.key));

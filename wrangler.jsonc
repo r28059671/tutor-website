@@ -23,10 +23,12 @@
 			"migrations_dir": "drizzle"
 		}
 	],
-	"r2_buckets": [
-		{
-			"binding": "PDF_BUCKET",
-			"bucket_name": "tutor-pdfs"
-		}
-	]
+	// Backblaze B2 holds PDFs, the tutor photo and D1 backups. See README "Forking".
+	// B2_KEY_ID and B2_APP_KEY are secrets. Local dev overrides B2_BUCKET in .dev.vars.
+	"vars": {
+		// Copy the host from the bucket page in the Backblaze console, without https://.
+		"B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
+		"B2_REGION": "eu-central-003",
+		"B2_BUCKET": "patil-classes-pdfs"
+	}
 }

@@ -1,6 +1,7 @@
 // Shared helpers for admin actions.
 import { ActionError, type ActionAPIContext } from 'astro:actions';
 import { env } from 'cloudflare:workers';
+import { deleteObjects } from './storage';
 
 export function requireAdmin(context: ActionAPIContext) {
   if (!context.locals.isAdmin) {
@@ -22,7 +23,7 @@ export function sqlNow() {
 }
 
 /**
- * Delete R2 objects that no lesson_files row references any more.
+ * Delete stored objects that no lesson_files row references any more.
  * Keys are content-addressed, so the same PDF may back several lessons.
  * Failures are logged, never thrown: the DB is the source of truth.
  */
@@ -37,9 +38,9 @@ export async function deleteUnreferencedObjects(keys: string[]) {
       .all<{ key: string }>();
     const stillUsed = new Set(results.map((r) => r.key));
     const orphaned = unique.filter((k) => !stillUsed.has(k));
-    if (orphaned.length) await env.PDF_BUCKET.delete(orphaned);
+    if (orphaned.length) await deleteObjects(orphaned);
   } catch (err) {
-    console.error('R2 cleanup failed for keys', unique, err);
+    console.error('Storage cleanup failed for keys', unique, err);
   }
 }
 

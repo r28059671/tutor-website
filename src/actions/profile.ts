@@ -1,11 +1,11 @@
 import { defineAction, ActionError } from 'astro:actions';
 import { z } from 'astro/zod';
-import { env } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import { tutorProfile } from '../db/schema';
 import { requireAdmin, sqlNow } from '../lib/admin';
 import { getDb } from '../lib/db';
 import { sha256Hex } from '../lib/files';
+import { deleteObjects, putObject } from '../lib/storage';
 
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
@@ -44,7 +44,12 @@ export const profileActions = {
         const type = imageType(data);
         if (!type) throw new ActionError({ code: 'BAD_REQUEST', message: 'Use a JPEG, PNG or WebP photo.' });
         const key = `media/tutor-${(await sha256Hex(data)).slice(0, 16)}.${type.ext}`;
-        await env.PDF_BUCKET.put(key, data, { httpMetadata: { contentType: type.mime } });
+        try {
+          await putObject(key, data, type.mime);
+        } catch (err) {
+          console.error('Photo upload failed', key, err);
+          throw new ActionError({ code: 'INTERNAL_SERVER_ERROR', message: 'The photo couldn’t be uploaded. Try again in a moment.' });
+        }
         previousKey = photoKey !== key ? photoKey : null;
         photoKey = key;
       } else if (input.removePhoto) {
@@ -63,7 +68,7 @@ export const profileActions = {
         .insert(tutorProfile)
         .values({ id: 1, ...values })
         .onConflictDoUpdate({ target: tutorProfile.id, set: values });
-      if (previousKey) await env.PDF_BUCKET.delete(previousKey).catch((err) => console.error('Photo cleanup failed', err));
+      if (previousKey) await deleteObjects([previousKey]).catch((err) => console.error('Photo cleanup failed', err));
       return { message: values.name ? 'Profile saved. It now shows on the home page and About page.' : 'Profile saved. It stays hidden until you add a name.' };
     },
   }),

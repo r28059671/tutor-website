@@ -18,7 +18,7 @@ Reach the right lesson's video or notes in two taps. Returning: resume the next 
 - **Type:** Atkinson Hyperlegible Next, self-hosted Latin-only woff2 subset (~30–45 KB), `font-display: swap`, `<link rel="preload">`, system-ui fallback, family exposed as one token (`--font-sans`) so a swap to system-ui is one line. No unicode-range slicing. Fixed rem scale, 1.2 ratio, tabular numerals for lesson numbers.
 
 ## 4. Scope
-Production-ready, full surface (public + admin), wired to D1/R2, polish until ships.
+Production-ready, full surface (public + admin), wired to D1 and Backblaze B2, polish until ships.
 
 ## 5. Layout and IA
 
@@ -30,7 +30,7 @@ Production-ready, full surface (public + admin), wired to D1/R2, polish until sh
   - Notes-only: notes download becomes hero block in player's slot.
   - Multi-PDF: labeled Notes / Practice / Solutions with size, **Download** + **Open**.
 - **`/search?q=`:** SSR, works without JS; progressive live query. D1 **FTS5** over title (highest weight) + description + subject + chapter, `bm25()` ranking. Result rows carry track · subject · chapter. Track filter chips. 20 per page.
-- **`/files/[hash]/[filename]`:** Worker route streams from R2. Key includes content hash, so `Cache-Control: public, max-age=31536000, immutable` is safe. `Content-Disposition` uses original filename.
+- **`/files/[hash]/[filename]`:** Worker route streams from B2 (private bucket, signed S3 requests). Key includes content hash, so `Cache-Control: public, max-age=31536000, immutable` is safe. `Content-Disposition` uses original filename.
 - **404:** friendly not-found. Unknown lesson under a known subject: "Lesson not found" + that subject's chapter list. Unknown subject: track index. Archived content resolves to the same friendly 404.
 
 ### Admin
@@ -68,9 +68,17 @@ Drafts and archived subjects/chapters excluded from: public pages, search, home 
 ### Slugs
 Slugs freeze on first publish. Names can change freely; URLs never do. Admin copy beside slug field: "This becomes the link students share. It can't change after publishing."
 
-### R2 lifecycle
+### Storage (Backblaze B2, changed from R2 on 2026-11-07)
+R2 requires a card on file, so objects moved to B2. Workers and D1 stay on Cloudflare. All access goes through `src/lib/storage.ts` (`aws4fetch`, S3-compatible API, no Worker binding). The `lesson_files.r2_key` column keeps its name; it holds the object key and a rename would need a migration for no gain.
+- **Caps:** accounts without a card may be limited to about 1 GB of downloads and 2,500 Class B and Class C calls per day (one developer's report, confirm in Caps & Alerts). When B2 refuses a read, `/files` answers 503 with a friendly message.
+- **Edge cache:** public objects are kept in `caches.default`, keyed by object key, after the D1 visibility check. Drafts never enter it. The Cache API is documented for custom domains only, so treat it as best effort on `workers.dev`.
+- **Region:** EU Central, as B2 has no Asia region. Uncached PDFs cost more latency in India than a nearby bucket would.
+- **Local dev:** a dedicated dev bucket, set in `.dev.vars`. No emulator, so same code path as production.
+
+### Storage lifecycle
 - Keys: `files/<sha256-16>/<safe-name>.pdf`. Content-addressed, so the same PDF attached to two lessons shares one object; a file stays public while any published lesson references it.
-- **Cleanup: on-delete hook in admin actions.** Deleting a lesson or a file (or replacing one) deletes the DB rows first, then the R2 objects no other row references; R2 delete failures logged, not fatal. No cron.
+- **Cleanup: on-delete hook in admin actions.** Deleting a lesson or a file (or replacing one) deletes the DB rows first, then the objects no other row references; delete failures logged, not fatal. No cron.
+- A B2 delete only hides the object. Bucket lifecycle rules on `files/` and `media/` remove hidden files after 1 day. Prefixes don't overlap.
 
 ### YouTube availability
 Cross-origin iframe cannot report removed/private videos, so the trigger is server-side: admin save calls YouTube oEmbed; 401/404 sets `video_status = unavailable`. Admin list flags unavailable videos; "Recheck" button. Public lesson with `unavailable` shows notes-first layout plus "Video unavailable. Try on YouTube" link instead of the facade.
@@ -86,14 +94,14 @@ Cross-origin iframe cannot report removed/private videos, so the trigger is serv
 Output is `server`, so no build-time D1 access. `/sitemap.xml` and `/robots.txt` are SSR endpoints querying D1, with `Cache-Control` (e.g. 1h, stale-while-revalidate). Robots disallows `/admin`. OG: video lessons use the YouTube `maxresdefault`/`hqdefault` thumbnail; notes-only lessons use a static per-track OG image. Per-page title/description/canonical.
 
 ### Backup
-D1 Time Travel covers point-in-time restore (built-in). Plus weekly GitHub Actions cron (`.github/workflows/d1-backup.yml`): `wrangler d1 export` of the base tables, then upload to R2 `backups/`. Retention via an R2 lifecycle rule (85 days, about 12 backups). `d1 export` cannot include the FTS5 virtual table, so after a restore use "Rebuild search index" in `/admin/structure`.
+D1 Time Travel covers point-in-time restore (built-in). Plus weekly GitHub Actions cron (`.github/workflows/d1-backup.yml`): `wrangler d1 export` of the base tables, then upload to B2 `backups/` with a key restricted to that prefix. Retention via a B2 lifecycle rule (hide after 85 days, delete 1 day later, about 12 backups). `d1 export` cannot include the FTS5 virtual table, so after a restore use "Rebuild search index" in `/admin/structure`.
 
 ## 7. Key states
 | Surface | States |
 |---|---|
 | Home | First visit · returning (Continue) · empty library ("Lessons are on their way") · track with no published content hidden |
 | Course | Fresh · partial · chapter complete (quiet check, no confetti) · empty/archived chapters hidden |
-| Lesson | Video + notes · video-only · notes-only · multi-PDF · facade pre-play · video unavailable · PDF missing in R2 (inline message, not 500) |
+| Lesson | Video + notes · video-only · notes-only · multi-PDF · facade pre-play · video unavailable · PDF missing in storage (inline message, not 500) · storage unavailable or capped (503 with a try-later message) |
 | Search | Empty query (tracks) · no results (spelling hint + tracks) · paginated |
 | 404 | Unknown lesson (subject's chapters) · unknown subject (track index) · archived |
 | Admin | Login error · rate limited · session expired mid-form (values preserved, re-login) · field validation · file too large (pre-upload) · per-file upload fail · publish blocked (no artifact) · saved ("Lesson published · View it") · draft preview · delete confirm · archive/restore · unavailable video flag · empty library |

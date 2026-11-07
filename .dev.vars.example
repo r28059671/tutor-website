@@ -1,2 +1,6 @@
 ADMIN_PASSWORD=change-me
 SESSION_SECRET=generate-with-openssl-rand-hex-32
+# Backblaze B2: an application key restricted to your dev bucket (never the production key).
+B2_KEY_ID=your-dev-key-id
+B2_APP_KEY=your-dev-application-key
+B2_BUCKET=patil-classes-dev

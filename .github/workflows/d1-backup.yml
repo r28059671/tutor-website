@@ -1,9 +1,12 @@
-# Weekly D1 export to R2 (backups/). Complements D1 Time Travel (point-in-time restore).
+# Weekly D1 export to Backblaze B2 (backups/). Complements D1 Time Travel (point-in-time restore).
 #
-# Retention: keep ~12 weekly backups with an R2 lifecycle rule (one-time setup):
-#   npx wrangler r2 bucket lifecycle add tutor-pdfs expire-d1-backups backups/ --expire-days 85
+# Retention: keep ~12 weekly backups with a B2 lifecycle rule (one-time setup, see README):
+#   prefix backups/, hide 85 days after upload, delete 1 day after hiding.
 #
-# Required repository secrets: CLOUDFLARE_API_TOKEN (D1 read + R2 write), CLOUDFLARE_ACCOUNT_ID.
+# Required repository secrets:
+#   CLOUDFLARE_API_TOKEN (D1), CLOUDFLARE_ACCOUNT_ID,
+#   B2_BACKUP_KEY_ID, B2_BACKUP_APP_KEY (key restricted to the bucket and the backups/ prefix),
+#   B2_ENDPOINT (host from the bucket page, without https://), B2_REGION, B2_BUCKET.
 #
 # lessons_fts is an FTS5 virtual table, which `d1 export` can't include, so the base tables
 # are exported explicitly. After a restore, use "Rebuild search index" in /admin/structure.
@@ -31,5 +34,14 @@ jobs:
           echo "FILE=$FILE" >> "$GITHUB_ENV"
           npx --yes wrangler@4 d1 export tutor-db --remote --output "$FILE" \
             --table tracks --table subjects --table chapters --table lessons --table lesson_files --table d1_migrations
-      - name: Upload to R2
-        run: npx --yes wrangler@4 r2 object put "tutor-pdfs/backups/$FILE" --file "$FILE" --content-type application/sql --remote
+      - name: Upload to B2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.B2_BACKUP_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_BACKUP_APP_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.B2_REGION }}
+          # Newer AWS CLI checksum defaults can break on S3-compatible stores.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          B2_ENDPOINT: ${{ secrets.B2_ENDPOINT }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: aws s3 cp "$FILE" "s3://$B2_BUCKET/backups/$FILE" --endpoint-url "https://$B2_ENDPOINT" --content-type application/sql
