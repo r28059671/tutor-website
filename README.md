@@ -6,21 +6,23 @@ Astro 7 (server output) on Cloudflare Workers · D1 (lessons, FTS5 search) · Ba
 
 Design and platform decisions: [`docs/design-brief.md`](docs/design-brief.md). Product context: [`PRODUCT.md`](PRODUCT.md).
 
+Deploying from GitHub through the Cloudflare dashboard: [`docs/deployment.md`](docs/deployment.md).
+
 ## Forking into your own Cloudflare account
 
 The repo is wired to the original owner's Cloudflare resources. A fork must create its own D1 database and Backblaze B2 buckets, otherwise deploys and backups point at someone else's data.
 
 1. **Cloudflare account**
-   - Sign in at dash.cloudflare.com, then run `npx wrangler login` in the fork's folder.
+   - Sign in at dash.cloudflare.com, then run `pnpm wrangler login` in the fork's folder.
 2. **Create the database**
    ```sh
-   npx wrangler d1 create tutor-db
+   pnpm wrangler d1 create tutor-db
    ```
    `d1 create` prints a `database_id`. Keep it.
 
    **Verify (remote):**
    ```sh
-   npx wrangler d1 list                  # tutor-db appears, with the id printed in step 2
+   pnpm wrangler d1 list                  # tutor-db appears, with the id printed in step 2
    ```
    If `d1 create` says the name is taken, pick another name (for example `tutor-db-yourname`), then update `database_name` in `wrangler.jsonc` and in the backup workflow (`d1-backup.yml`, which has `tutor-db` hardcoded).
 3. **Point the repo at your database.** In `wrangler.jsonc`, replace the `database_id` under `d1_databases` with the one from step 2. The current value belongs to the original owner. Leave `database_name` (`tutor-db`) as it is, unless you chose a different name in step 2.
@@ -39,19 +41,19 @@ The repo is wired to the original owner's Cloudflare resources. A fork must crea
    - Read **Caps & Alerts**. Accounts without a card may be limited to about 1 GB of downloads and 2,500 Class B and Class C calls per day. When a cap is hit, PDFs show "try again later" until it resets. Published files are served from the Cloudflare edge cache where available, which needs a custom domain to be dependable.
 5. **Secrets for the deployed Worker**
    ```sh
-   npx wrangler secret put ADMIN_PASSWORD
-   npx wrangler secret put SESSION_SECRET            # openssl rand -hex 32
-   npx wrangler secret put B2_KEY_ID                 # Worker key
-   npx wrangler secret put B2_APP_KEY
+   pnpm wrangler secret put ADMIN_PASSWORD
+   pnpm wrangler secret put SESSION_SECRET            # openssl rand -hex 32
+   pnpm wrangler secret put B2_KEY_ID                 # Worker key
+   pnpm wrangler secret put B2_APP_KEY
    ```
 
    Use `wrangler secret put` as shown. Cloudflare's Secrets Store isn't needed, and `.dev.vars` is only for local development (`cp .dev.vars.example .dev.vars`).
 6. **Schema and first deploy**
    ```sh
-   npx wrangler d1 migrations apply tutor-db --remote
-   npx wrangler d1 execute tutor-db --remote --command "SELECT slug, label FROM tracks ORDER BY position"
+   pnpm wrangler d1 migrations apply tutor-db --remote
+   pnpm wrangler d1 execute tutor-db --remote --command "SELECT slug, label FROM tracks ORDER BY position"
    pnpm install
-   pnpm deploy
+   pnpm run deploy
    ```
 
    The `execute` line must list five rows (class-10 through pro). An error like `no such table: tracks` means the migration didn't run against the remote database. Check the `database_id` in `wrangler.jsonc`.
@@ -79,7 +81,7 @@ Local development uses its own empty database and the dev bucket (see below), so
 ```sh
 pnpm install
 cp .dev.vars.example .dev.vars        # set ADMIN_PASSWORD, SESSION_SECRET (openssl rand -hex 32) and the B2 dev key
-npx wrangler d1 migrations apply tutor-db --local
+pnpm wrangler d1 migrations apply tutor-db --local
 astro dev --background                # http://localhost:4321, admin at /admin
 ```
 
@@ -89,18 +91,20 @@ To wipe local D1 data and start clean (stop the dev server first). Files in the 
 
 ```sh
 rm -rf .wrangler/state
-npx wrangler d1 migrations apply tutor-db --local
+pnpm wrangler d1 migrations apply tutor-db --local
 ```
 
 ## First deploy
 
+To deploy automatically on every push instead, connect the repo in the Cloudflare dashboard: [`docs/deployment.md`](docs/deployment.md).
+
 ```sh
-npx wrangler secret put ADMIN_PASSWORD
-npx wrangler secret put SESSION_SECRET            # rotating this signs the tutor out everywhere
-npx wrangler secret put B2_KEY_ID
-npx wrangler secret put B2_APP_KEY
-npx wrangler d1 migrations apply tutor-db --remote
-pnpm deploy
+pnpm wrangler secret put ADMIN_PASSWORD
+pnpm wrangler secret put SESSION_SECRET            # rotating this signs the tutor out everywhere
+pnpm wrangler secret put B2_KEY_ID
+pnpm wrangler secret put B2_APP_KEY
+pnpm wrangler d1 migrations apply tutor-db --remote
+pnpm run deploy
 ```
 
 Optional:
@@ -115,7 +119,7 @@ Optional:
 | :-- | :-- |
 | `pnpm dev` | Dev server |
 | `pnpm build` | Production build |
-| `npx astro check` | Type-check |
+| `pnpm astro check` | Type-check |
 | `pnpm lint` | oxlint |
 | `node scripts/og-images.mjs` | Regenerate per-track Open Graph images |
-| `npx drizzle-kit generate` | New migration after editing `src/db/schema.ts` |
+| `pnpm drizzle-kit generate` | New migration after editing `src/db/schema.ts` |
