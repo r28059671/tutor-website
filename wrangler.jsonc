@@ -19,7 +19,7 @@
 			"binding": "DB",
 			"database_name": "tutor-db",
 			// Replace with your own id from `npx wrangler d1 create tutor-db` (see README "Forking").
-			"database_id": "dc5cf1b7-d118-4e82-9dd8-549bc044f19f",
+			"database_id": "11da1828-2796-4dde-8ffc-9c9d3dedf502",
 			"migrations_dir": "drizzle"
 		}
 	],
